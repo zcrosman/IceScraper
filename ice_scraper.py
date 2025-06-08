@@ -26,6 +26,8 @@ if not messageIsRequest:
     linkedin_output_file = output_dir + os.sep + "scraper-linkedin_unauth.csv"
     zoominfo_output_file = output_dir + os.sep + "scraper-zoominfo.csv"
     authed_LI_output_file = output_dir + os.sep + "scraper-linkedin_auth.csv"
+    govsalaries_output_file = output_dir + os.sep + "scraper-govsalaries.csv"
+    transparent_ca_output_file = output_dir + os.sep + "scraper-transparent-ca.csv"
 
     response = messageInfo.getResponse()
     analyzedResponse = helpers.analyzeResponse(response)
@@ -50,6 +52,94 @@ if not messageIsRequest:
 
         response = messageInfo.getResponse()
         analyzedResponse = helpers.analyzeResponse(response)
+
+        # Scrape transparentcalifornia.com salary data
+        if "transparentcalifornia.com" in str(messageInfo.host).lower():
+            txt = helpers.bytesToString(response[analyzedResponse.getBodyOffset():]).encode('ascii','ignore')
+            
+            # Find all employee rows - using a more specific pattern
+            employee_rows = re.findall('<tr>\s*<td>\s*<a href="/salaries/\d{4}/[^"]+">[^<]+</a>.*?</tr>', txt, re.DOTALL)
+                        
+            f = open(transparent_ca_output_file, 'a')
+            
+            # Write header if file is empty
+            if os.path.getsize(transparent_ca_output_file) == 0:
+                header = '"Name","Job Title","Location","Base Pay","Overtime","Other Pay","Total Pay","Benefits","Pension","Total Compensation","Profile URL"\n'
+                f.write(header)
+            
+            for row in employee_rows:
+                # Extract name
+                name_match = re.search('<a href="/salaries/\d{4}/[^"]+">([^<]+)</a>', row)
+                name = name_match.group(1) if name_match else ""
+                
+                # Extract job title
+                title_match = re.search('<a href="/salaries/search/\?q=[^"]+">([^<]+)</a>', row)
+                title = title_match.group(1) if title_match else ""
+                
+                # Extract location and year
+                organization_match = re.search('<a href="/salaries/\d{4}/[^/]+/">([^<]+)</a>', row)
+                organization = organization_match.group(1).split(',')[0] if organization_match else ""
+                
+                output = '"' + name + '","' + title + '","' + organization + '"'
+                
+                print output
+                
+                if type(output) == type(u''):
+                    output = str(output.encode())
+                
+                f.write(output + "\n")
+            
+            f.close()
+
+        # Scrape govsalaries.com employee data
+        if "govsalaries.com" in str(messageInfo.host).lower():
+            txt = helpers.bytesToString(response[analyzedResponse.getBodyOffset():]).encode('ascii','ignore')
+            
+            # Find all employee rows
+            employee_rows = re.findall('<tr itemprop="employee"[^>]*>(.*?)</tr>', txt, re.DOTALL)
+            
+            f = open(govsalaries_output_file, 'a')
+            
+            for row in employee_rows:
+                # Extract name
+                name_match = re.search('<span itemprop="name">([^<]+)</span>', row)
+                name = name_match.group(1) if name_match else ""
+                
+                # Process name to handle middle initial at the end
+                name_parts = name.split()
+                if len(name_parts) > 1 and len(name_parts[-1]) == 1:  # If last part is a single character
+                    # Move the initial after the first name
+                    initial = name_parts[-1]
+                    first_name = name_parts[0]
+                    last_name = ' '.join(name_parts[1:-1])  # Everything between first name and initial
+                    name = '%s %s %s' % (first_name, initial, last_name)
+                
+                # Extract year
+                year_match = re.search('<td>(\d{4})</td>', row)
+                year = year_match.group(1) if year_match else ""
+                
+                # Extract job title
+                title_match = re.search('itemprop="jobTitle">\s*([^<]+)\s*</td>', row)
+                title = title_match.group(1).strip() if title_match else ""
+                
+                # Extract organization
+                org_match = re.search('itemprop="name">([^<]+)</span></td>', row)
+                organization = org_match.group(1) if org_match else ""
+                
+                # Extract profile URL
+                url_match = re.search('href="([^"]+)"', row)
+                profile_url = "https://govsalaries.com" + url_match.group(1) if url_match else ""
+                
+                output = '"' + name + '","' + title + '","' + organization + '"'
+
+                print output
+                
+                if type(output) == type(u''):
+                    output = str(output.encode())
+                
+                f.write(output + "\n")
+            
+            f.close()
 
         # Scrape LinkedIn contacts from Google
         if "google.com" in str(messageInfo.host).lower() and "linkedin" in str(messageInfo.url).lower():
